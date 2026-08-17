@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile app.py)",
+      "Bash(find \"/c/Users/anaju/Desktop\" -iname \"*relatorio_uso_ferramentas*\" 2>/dev/null; find /c/Users/anaju -maxdepth 4 -iname \"*relatorio_uso_ferramentas*\" 2>/dev/null)",
+      "Read(//c/Users/anaju/**)",
+      "Bash(python3 -c ' *)"
+    ]
+  }
+}

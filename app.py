@@ -59,8 +59,23 @@ def build_report(fdf: pd.DataFrame) -> bytes:
 def load_data():
     client = get_client()
     try:
-        response = client.table("activity_logs").select("*").execute()
-        df = pd.DataFrame(response.data)
+        page_size = 1000
+        all_rows = []
+        start = 0
+        while True:
+            response = (
+                client.table("activity_logs")
+                .select("*")
+                .range(start, start + page_size - 1)
+                .execute()
+            )
+            rows = response.data
+            all_rows.extend(rows)
+            if len(rows) < page_size:
+                break
+            start += page_size
+
+        df = pd.DataFrame(all_rows)
         if not df.empty:
             df["created_at"] = pd.to_datetime(df["created_at"], format="mixed", utc=True)
         return df, None

@@ -1,0 +1,110 @@
+RELATÓRIO DE USO DO AGENTE DE IA
+Período analisado: 10/05/2026-12/06/2026
+
+
+==================================================
+1. VISÃO GERAL
+==================================================
+- Total de atividades registradas: 513
+- Usuários ativos: 15
+- Ferramentas/ações distintas utilizadas: 15
+
+==================================================
+2. RANKING DE USUÁRIOS MAIS ATIVOS
+==================================================
+ 1. karolyne.franco@macfor.com.br      - 240 atividades
+ 2. amanda.campos@macfor.com.br        -  63 atividades
+ 3. beatrizsouza067@yahoo.com          -  40 atividades
+ 4. emanuelle.costa@macfor.com.br      -  37 atividades
+ 5. elysabeth.barcellos@macfor.com.br  -  34 atividades
+ 6. pedro.veloso@macfor.com.br         -  28 atividades
+ 7. marina.franco@macfor.com.br        -  20 atividades
+ 8. gabriele.gois@macfor.com.br        -  13 atividades
+ 9. leonardo.lanjoni@macfor.com.br     -  13 atividades
+10. helena.denck@macfor.com.br         -  11 atividades
+11. arianeparreiramacfor@gmail.com     -   6 atividades
+12. leonardo.ruiz@macfor.com.br        -   4 atividades
+13. carolina.pardini@macfor.com.br     -   2 atividades
+14. daniela.leite@macfor.com.br        -   1 atividade
+15. victor.coleta@macfor.com.br        -   1 atividade
+
+Observação: karolyne.franco concentra ~47% de todo o volume de uso,
+quase inteiramente na ferramenta "monitoramento_redes".
+
+==================================================
+3. RANKING DE FERRAMENTAS MAIS UTILIZADAS
+==================================================
+ 1. monitoramento_redes        - 247 usos (3 usuários)
+ 2. login                       -  82 usos (2 usuários)
+ 3. analisar_texto_rag          -  42 usos (5 usuários)
+ 4. validar_texto                -  29 usos (1 usuário)
+ 5. gerar_conteudo_social        -  27 usos (5 usuários)
+ 6. revisar_texto                -  24 usos (5 usuários)
+ 7. gerar_conteudo_otimizado     -  13 usos (1 usuário)
+ 8. validar_legenda_video        -  13 usos (1 usuário)
+ 9. validar_texto_imagem         -  12 usos (2 usuários)
+10. processar_briefing           -   8 usos (1 usuário)
+11. gerar_calendario_social      -   7 usos (3 usuários)
+12. gerar_legenda_social         -   5 usos (1 usuário)
+13. analisar_texto                -  2 usos (1 usuário)
+14. gerar_briefing                -  1 uso  (1 usuário)
+15. gerar_calendario               -  1 uso  (1 usuário)
+
+
+==================================================
+5. FERRAMENTAS UTILIZADAS POR USUÁRIO
+==================================================
+amanda.campos@macfor.com.br
+  Utiliza: analisar_texto_rag
+
+arianeparreiramacfor@gmail.com
+  Utiliza: gerar_conteudo_social, gerar_legenda_social
+
+beatrizsouza067@yahoo.com
+  Utiliza: gerar_conteudo_social, validar_texto
+
+carolina.pardini@macfor.com.br
+  Utiliza: analisar_texto_rag, revisar_texto
+
+daniela.leite@macfor.com.br
+  Utiliza: revisar_texto
+
+elysabeth.barcellos@macfor.com.br
+  Utiliza: analisar_texto_rag, processar_briefing
+
+emanuelle.costa@macfor.com.br
+  Utiliza: revisar_texto
+
+gabriele.gois@macfor.com.br
+  Utiliza: gerar_calendario, gerar_calendario_social,
+  gerar_conteudo_social, monitoramento_redes
+
+helena.denck@macfor.com.br
+  Utiliza: analisar_texto_rag, gerar_conteudo_social
+
+karolyne.franco@macfor.com.br
+  Utiliza: monitoramento_redes
+
+leonardo.lanjoni@macfor.com.br
+  Utiliza: gerar_conteudo_otimizado
+
+leonardo.ruiz@macfor.com.br
+  Utiliza: analisar_texto, analisar_texto_rag, revisar_texto
+
+marina.franco@macfor.com.br
+  Utiliza: gerar_calendario_social, gerar_conteudo_social,
+  revisar_texto, validar_texto_imagem
+
+pedro.veloso@macfor.com.br
+  Utiliza: gerar_calendario_social, monitoramento_redes,
+  validar_legenda_video, validar_texto_imagem
+
+victor.coleta@macfor.com.br
+  Utiliza: gerar_briefing
+
+==================================================
+6. Observações
+==================================================
+- A funcionalidade de RAG está inativa desde 06/06 devido aos créditos do openai - afetam a revisão técnica embasada e geração de conteúdo
+- Existe o monitoramento do Instagram via email que acontece diariamente e é utilizado por Maria Helena e Gabriele Gois
+  
