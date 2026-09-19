@@ -6,6 +6,21 @@ from dotenv import load_dotenv
 from io import BytesIO
 import os
 
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.platypus import (
+    Image as RLImage,
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
+
 EXCLUDED_EMAILS = {
     "julia.ledo@macfor.com.br",
     "gustavo.romao@macfor.com.br",
@@ -29,29 +44,146 @@ def get_client():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def build_report(fdf: pd.DataFrame) -> bytes:
-    # Planilha 1: quantidade de uso por ferramenta para cada usuário
-    pivot = pd.crosstab(fdf["user_email"], fdf["action"])
-    pivot["Total"] = pivot.sum(axis=1)
-    pivot = pivot.reset_index().rename(columns={"user_email": "Usuário"})
+def _fig_to_rlimage(fig, width_cm: float, px_width: int = 1000, px_height: int = 550) -> RLImage:
+    """Renderiza uma figura Plotly como PNG (via kaleido) e devolve como Image do reportlab."""
+    img_bytes = fig.to_image(format="png", width=px_width, height=px_height, scale=2)
+    height_cm = width_cm * (px_height / px_width)
+    return RLImage(BytesIO(img_bytes), width=width_cm * cm, height=height_cm * cm)
 
-    # Planilha 2: quais ferramentas cada usuário usa e quais não usa
-    all_tools = sorted(fdf["action"].dropna().unique().tolist())
-    rows = []
-    for user, group in fdf.groupby("user_email"):
-        used = sorted(group["action"].dropna().unique().tolist())
-        not_used = [t for t in all_tools if t not in used]
-        rows.append({
-            "Usuário": user,
-            "Ferramentas Utilizadas": ", ".join(used),
-            "Ferramentas Não Utilizadas": ", ".join(not_used),
-        })
-    tools_df = pd.DataFrame(rows)
+
+def build_report_pdf(fdf: pd.DataFrame) -> bytes:
+    styles = getSampleStyleSheet()
+    highlight_style = ParagraphStyle(
+        "Highlight",
+        parent=styles["Normal"],
+        fontSize=12,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#1a5632"),
+        spaceBefore=8,
+        spaceAfter=4,
+    )
+    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontSize=8, leading=10)
+
+    elements = []
+
+    # ── Cabeçalho ────────────────────────────────────────────────────────────
+    elements.append(Paragraph("Relatório de Uso de Ferramentas — Agente IA", styles["Title"]))
+    periodo = (
+        f"Período analisado: {fdf['created_at'].min():%d/%m/%Y} a {fdf['created_at'].max():%d/%m/%Y}"
+        f" &nbsp;|&nbsp; Total de atividades: {len(fdf):,}"
+    )
+    elements.append(Paragraph(periodo, styles["Normal"]))
+    elements.append(Spacer(1, 0.6 * cm))
+
+    # ── 1. Agentes mais utilizados ───────────────────────────────────────────
+    elements.append(Paragraph("Agentes Mais Utilizados", styles["Heading2"]))
+    agent_counts = fdf["agent"].value_counts().reset_index()
+    agent_counts.columns = ["Agente", "Quantidade"]
+
+    fig_agent = px.pie(agent_counts, names="Agente", values="Quantidade", hole=0.4)
+    fig_agent.update_traces(textinfo="percent+label")
+    elements.append(_fig_to_rlimage(fig_agent, width_cm=14, px_width=900, px_height=600))
+
+    top_agent = agent_counts.iloc[0]
+    pct_agent = top_agent["Quantidade"] / agent_counts["Quantidade"].sum() * 100
+    elements.append(
+        Paragraph(
+            f"O agente mais utilizado foi <b>{top_agent['Agente']}</b>, com "
+            f"{int(top_agent['Quantidade'])} usos ({pct_agent:.1f}% do total).",
+            highlight_style,
+        )
+    )
+    elements.append(PageBreak())
+
+    # ── 2. Usuários ───────────────────────────────────────────────────────────
+    elements.append(Paragraph("Usuários", styles["Heading2"]))
+
+    user_counts = fdf["user_email"].value_counts().reset_index()
+    user_counts.columns = ["Usuário", "Quantidade"]
+
+    fig_user = px.bar(
+        user_counts,
+        x="Quantidade",
+        y="Usuário",
+        orientation="h",
+        color="Quantidade",
+        color_continuous_scale="Greens",
+        text="Quantidade",
+    )
+    fig_user.update_traces(textposition="outside")
+    fig_user.update_layout(
+        yaxis={"categoryorder": "total ascending"},
+        coloraxis_showscale=False,
+    )
+    user_chart_height = max(500, 40 * len(user_counts))
+    elements.append(
+        _fig_to_rlimage(fig_user, width_cm=16, px_width=900, px_height=user_chart_height)
+    )
+    elements.append(Spacer(1, 0.4 * cm))
+
+    user_tools = (
+        fdf.groupby("user_email")["action"]
+        .apply(lambda s: ", ".join(sorted(s.dropna().unique())))
+        .reset_index()
+        .rename(columns={"user_email": "Usuário", "action": "Ferramentas Utilizadas"})
+    )
+    user_summary = user_counts.merge(user_tools, on="Usuário").sort_values(
+        "Quantidade", ascending=False
+    )
+
+    table_rows = [["Usuário", "Qtd.", "Ferramentas Utilizadas"]]
+    for _, row in user_summary.iterrows():
+        table_rows.append(
+            [
+                Paragraph(row["Usuário"], cell_style),
+                str(int(row["Quantidade"])),
+                Paragraph(row["Ferramentas Utilizadas"], cell_style),
+            ]
+        )
+    user_table = Table(table_rows, colWidths=[5 * cm, 1.5 * cm, 9.5 * cm], repeatRows=1)
+    user_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2c3e50")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5f5")]),
+            ]
+        )
+    )
+    elements.append(user_table)
+    elements.append(PageBreak())
+
+    # ── 3. Uso por ferramenta ────────────────────────────────────────────────
+    elements.append(Paragraph("Uso por Ferramenta", styles["Heading2"]))
+    action_counts = fdf["action"].value_counts().reset_index()
+    action_counts.columns = ["Ferramenta", "Quantidade"]
+
+    fig_actions = px.bar(
+        action_counts,
+        x="Ferramenta",
+        y="Quantidade",
+        color="Quantidade",
+        color_continuous_scale="Blues",
+        text="Quantidade",
+    )
+    fig_actions.update_traces(textposition="outside")
+    fig_actions.update_layout(coloraxis_showscale=False, xaxis_tickangle=-35)
+    elements.append(_fig_to_rlimage(fig_actions, width_cm=16, px_width=1000, px_height=600))
 
     output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        pivot.to_excel(writer, sheet_name="Uso por Usuário", index=False)
-        tools_df.to_excel(writer, sheet_name="Ferramentas por Usuário", index=False)
+    doc = SimpleDocTemplate(
+        output,
+        pagesize=A4,
+        topMargin=1.5 * cm,
+        bottomMargin=1.5 * cm,
+        leftMargin=1.5 * cm,
+        rightMargin=1.5 * cm,
+    )
+    doc.build(elements)
     return output.getvalue()
 
 
@@ -239,14 +371,15 @@ st.divider()
 st.subheader("Relatório")
 
 if st.button("📊 Gerar Relatório"):
-    st.session_state["report_bytes"] = build_report(fdf)
+    with st.spinner("Gerando PDF..."):
+        st.session_state["report_bytes"] = build_report_pdf(fdf)
 
 if "report_bytes" in st.session_state:
     st.download_button(
-        label="⬇️ Baixar Relatório (Excel)",
+        label="⬇️ Baixar Relatório (PDF)",
         data=st.session_state["report_bytes"],
-        file_name="relatorio_uso_ferramentas.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        file_name="relatorio_uso_ferramentas.pdf",
+        mime="application/pdf",
     )
 
 st.divider()
