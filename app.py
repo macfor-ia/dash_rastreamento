@@ -6,6 +6,12 @@ from dotenv import load_dotenv
 from io import BytesIO
 import os
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+from PIL import Image as PILImage
+
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
@@ -20,6 +26,36 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+
+# Paleta validada (skill dataviz / references/palette.md) — modo claro, impressão.
+CATEGORICAL_COLORS = [
+    "#2a78d6",  # blue
+    "#eb6834",  # orange
+    "#1baf7a",  # aqua
+    "#eda100",  # yellow
+    "#e87ba4",  # magenta
+    "#008300",  # green
+    "#4a3aa7",  # violet
+    "#e34948",  # red
+]
+SEQ_BLUE = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
+INK_PRIMARY = "#0b0b0b"
+INK_SECONDARY = "#52514e"
+GRID_COLOR = "#e1e0d9"
+AXIS_COLOR = "#c3c2b7"
+
+plt.rcParams.update({
+    "font.family": "sans-serif",
+    "font.size": 10,
+    "text.color": INK_PRIMARY,
+    "axes.edgecolor": AXIS_COLOR,
+    "axes.labelcolor": INK_SECONDARY,
+    "xtick.color": INK_SECONDARY,
+    "ytick.color": INK_SECONDARY,
+    "figure.facecolor": "white",
+    "axes.facecolor": "white",
+    "savefig.facecolor": "white",
+})
 
 EXCLUDED_EMAILS = {
     "julia.ledo@macfor.com.br",
@@ -44,11 +80,120 @@ def get_client():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def _fig_to_rlimage(fig, width_cm: float, px_width: int = 1000, px_height: int = 550) -> RLImage:
-    """Renderiza uma figura Plotly como PNG (via kaleido) e devolve como Image do reportlab."""
-    img_bytes = fig.to_image(format="png", width=px_width, height=px_height, scale=2)
-    height_cm = width_cm * (px_height / px_width)
-    return RLImage(BytesIO(img_bytes), width=width_cm * cm, height=height_cm * cm)
+def _mpl_fig_to_rlimage(fig, width_cm: float) -> RLImage:
+    """Renderiza uma figura matplotlib como PNG e devolve como Image do reportlab."""
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    px_w, px_h = PILImage.open(buf).size
+    buf.seek(0)
+    height_cm = width_cm * (px_h / px_w)
+    return RLImage(buf, width=width_cm * cm, height=height_cm * cm)
+
+
+def _seq_blue_colors(values) -> list:
+    """Mapeia valores para a rampa sequencial azul (magnitude), evitando a ponta mais clara."""
+    vmin, vmax = min(values), max(values)
+    cmap = LinearSegmentedColormap.from_list("seq_blue", SEQ_BLUE)
+    if vmax == vmin:
+        return [cmap(0.75) for _ in values]
+    return [cmap(0.3 + 0.7 * (v - vmin) / (vmax - vmin)) for v in values]
+
+
+def _build_agent_pie(agent_counts: pd.DataFrame):
+    n = len(agent_counts)
+    total = agent_counts["Quantidade"].sum()
+    fig, ax = plt.subplots(figsize=(7, 4))
+    wedges, _ = ax.pie(
+        agent_counts["Quantidade"],
+        colors=CATEGORICAL_COLORS[:n],
+        startangle=90,
+        counterclock=False,
+        wedgeprops={"width": 0.45, "edgecolor": "white", "linewidth": 2},
+    )
+    labels = [
+        f"{nome}  —  {qtd} ({qtd / total * 100:.1f}%)"
+        for nome, qtd in zip(agent_counts["Agente"], agent_counts["Quantidade"])
+    ]
+    ax.legend(
+        wedges,
+        labels,
+        loc="center left",
+        bbox_to_anchor=(1.05, 0.5),
+        frameon=False,
+        fontsize=10,
+        labelcolor=INK_SECONDARY,
+        handlelength=1.2,
+    )
+    ax.set_aspect("equal")
+    fig.tight_layout()
+    return fig
+
+
+def _build_user_bar(user_counts: pd.DataFrame):
+    df_sorted = user_counts.sort_values("Quantidade", ascending=True)
+    n = len(df_sorted)
+    fig_height = max(2.5, 0.42 * n + 0.8)
+    fig, ax = plt.subplots(figsize=(9, fig_height))
+
+    vals = df_sorted["Quantidade"].tolist()
+    bars = ax.barh(df_sorted["Usuário"], vals, color=_seq_blue_colors(vals), height=0.62)
+
+    max_val = max(vals)
+    for bar, v in zip(bars, vals):
+        ax.text(
+            bar.get_width() + max_val * 0.015,
+            bar.get_y() + bar.get_height() / 2,
+            str(int(v)),
+            va="center",
+            fontsize=9,
+            color=INK_SECONDARY,
+        )
+
+    ax.set_xlim(0, max_val * 1.12)
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.spines["bottom"].set_color(AXIS_COLOR)
+    ax.tick_params(left=False, labelsize=9)
+    ax.xaxis.grid(True, color=GRID_COLOR, linewidth=0.8)
+    ax.set_axisbelow(True)
+    ax.set_xticks([])
+    fig.tight_layout()
+    return fig
+
+
+def _build_tool_bar(action_counts: pd.DataFrame):
+    df_sorted = action_counts.sort_values("Quantidade", ascending=False)
+    n = len(df_sorted)
+    fig_width = max(7, 0.9 * n + 1.5)
+    fig, ax = plt.subplots(figsize=(fig_width, 4.6))
+
+    vals = df_sorted["Quantidade"].tolist()
+    x_pos = range(n)
+    bars = ax.bar(x_pos, vals, color=_seq_blue_colors(vals), width=0.6)
+
+    max_val = max(vals)
+    for bar, v in zip(bars, vals):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + max_val * 0.02,
+            str(int(v)),
+            ha="center",
+            fontsize=9,
+            color=INK_SECONDARY,
+        )
+
+    ax.set_ylim(0, max_val * 1.15)
+    ax.set_xticks(list(x_pos))
+    ax.set_xticklabels(df_sorted["Ferramenta"], rotation=35, ha="right", fontsize=9)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.spines[["left", "bottom"]].set_color(AXIS_COLOR)
+    ax.tick_params(left=False, bottom=False)
+    ax.set_yticks([])
+    ax.yaxis.grid(True, color=GRID_COLOR, linewidth=0.8)
+    ax.set_axisbelow(True)
+    fig.tight_layout()
+    return fig
 
 
 def build_report_pdf(fdf: pd.DataFrame) -> bytes:
@@ -80,9 +225,7 @@ def build_report_pdf(fdf: pd.DataFrame) -> bytes:
     agent_counts = fdf["agent"].value_counts().reset_index()
     agent_counts.columns = ["Agente", "Quantidade"]
 
-    fig_agent = px.pie(agent_counts, names="Agente", values="Quantidade", hole=0.4)
-    fig_agent.update_traces(textinfo="percent+label")
-    elements.append(_fig_to_rlimage(fig_agent, width_cm=14, px_width=900, px_height=600))
+    elements.append(_mpl_fig_to_rlimage(_build_agent_pie(agent_counts), width_cm=15))
 
     top_agent = agent_counts.iloc[0]
     pct_agent = top_agent["Quantidade"] / agent_counts["Quantidade"].sum() * 100
@@ -101,24 +244,7 @@ def build_report_pdf(fdf: pd.DataFrame) -> bytes:
     user_counts = fdf["user_email"].value_counts().reset_index()
     user_counts.columns = ["Usuário", "Quantidade"]
 
-    fig_user = px.bar(
-        user_counts,
-        x="Quantidade",
-        y="Usuário",
-        orientation="h",
-        color="Quantidade",
-        color_continuous_scale="Greens",
-        text="Quantidade",
-    )
-    fig_user.update_traces(textposition="outside")
-    fig_user.update_layout(
-        yaxis={"categoryorder": "total ascending"},
-        coloraxis_showscale=False,
-    )
-    user_chart_height = max(500, 40 * len(user_counts))
-    elements.append(
-        _fig_to_rlimage(fig_user, width_cm=16, px_width=900, px_height=user_chart_height)
-    )
+    elements.append(_mpl_fig_to_rlimage(_build_user_bar(user_counts), width_cm=16))
     elements.append(Spacer(1, 0.4 * cm))
 
     user_tools = (
@@ -162,17 +288,7 @@ def build_report_pdf(fdf: pd.DataFrame) -> bytes:
     action_counts = fdf["action"].value_counts().reset_index()
     action_counts.columns = ["Ferramenta", "Quantidade"]
 
-    fig_actions = px.bar(
-        action_counts,
-        x="Ferramenta",
-        y="Quantidade",
-        color="Quantidade",
-        color_continuous_scale="Blues",
-        text="Quantidade",
-    )
-    fig_actions.update_traces(textposition="outside")
-    fig_actions.update_layout(coloraxis_showscale=False, xaxis_tickangle=-35)
-    elements.append(_fig_to_rlimage(fig_actions, width_cm=16, px_width=1000, px_height=600))
+    elements.append(_mpl_fig_to_rlimage(_build_tool_bar(action_counts), width_cm=16))
 
     output = BytesIO()
     doc = SimpleDocTemplate(
