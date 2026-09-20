@@ -27,6 +27,10 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+# Identidade visual Macfor (extraída do template oficial de apresentação).
+MACFOR_BLUE = "#0a7cf5"
+LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "macfor_logo.png")
+
 # Paleta validada (skill dataviz / references/palette.md) — modo claro, impressão.
 CATEGORICAL_COLORS = [
     "#2a78d6",  # blue
@@ -90,6 +94,62 @@ def _mpl_fig_to_rlimage(fig, width_cm: float) -> RLImage:
     buf.seek(0)
     height_cm = width_cm * (px_h / px_w)
     return RLImage(buf, width=width_cm * cm, height=height_cm * cm)
+
+
+def _card(img: RLImage, pad_cm: float = 0.4) -> Table:
+    """Envolve uma imagem em um card branco de cantos arredondados, no estilo do template Macfor."""
+    pad = pad_cm * cm
+    card = Table([[img]], colWidths=[img.drawWidth + 2 * pad])
+    card.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor(AXIS_COLOR)),
+                ("ROUNDEDCORNERS", [8, 8, 8, 8]),
+                ("TOPPADDING", (0, 0), (-1, -1), pad),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), pad),
+                ("LEFTPADDING", (0, 0), (-1, -1), pad),
+                ("RIGHTPADDING", (0, 0), (-1, -1), pad),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+    return card
+
+
+def _draw_header_footer(canvas, doc):
+    """Cabeçalho/rodapé de marca (logo + linha azul + tagline), repetido em toda página."""
+    canvas.saveState()
+    page_w, page_h = A4
+
+    # Cabeçalho: "MACFOR" à esquerda, logo à direita, linha azul de separação.
+    canvas.setFont("Helvetica-Bold", 8)
+    canvas.setFillColor(colors.HexColor(MACFOR_BLUE))
+    canvas.drawString(1.5 * cm, page_h - 1.15 * cm, "MACFOR")
+
+    if os.path.exists(LOGO_PATH):
+        logo_w, logo_h = 2.6 * cm, 2.6 * cm / (1120 / 360)
+        canvas.drawImage(
+            LOGO_PATH,
+            page_w - 1.5 * cm - logo_w,
+            page_h - 1.0 * cm - logo_h,
+            width=logo_w,
+            height=logo_h,
+            mask="auto",
+        )
+
+    canvas.setStrokeColor(colors.HexColor(MACFOR_BLUE))
+    canvas.setLineWidth(1)
+    canvas.line(1.5 * cm, page_h - 1.4 * cm, page_w - 1.5 * cm, page_h - 1.4 * cm)
+
+    # Rodapé: tagline à esquerda, número de página à direita.
+    canvas.setFont("Helvetica", 8)
+    canvas.setFillColor(colors.HexColor(INK_SECONDARY))
+    canvas.drawString(1.5 * cm, 1.1 * cm, "macfor.com.br")
+    canvas.drawRightString(page_w - 1.5 * cm, 1.1 * cm, f"{doc.page}")
+
+    canvas.restoreState()
 
 
 def _seq_blue_colors(values) -> list:
@@ -198,13 +258,26 @@ def _build_tool_bar(action_counts: pd.DataFrame):
 
 def build_report_pdf(fdf: pd.DataFrame) -> bytes:
     styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "MacforTitle",
+        parent=styles["Title"],
+        textColor=colors.HexColor(INK_PRIMARY),
+        fontName="Helvetica-Bold",
+        fontSize=20,
+    )
+    heading_style = ParagraphStyle(
+        "MacforHeading",
+        parent=styles["Heading2"],
+        textColor=colors.HexColor(MACFOR_BLUE),
+        fontName="Helvetica-Bold",
+    )
     highlight_style = ParagraphStyle(
         "Highlight",
         parent=styles["Normal"],
         fontSize=12,
         alignment=TA_CENTER,
-        textColor=colors.HexColor("#1a5632"),
-        spaceBefore=8,
+        textColor=colors.HexColor(INK_PRIMARY),
+        spaceBefore=10,
         spaceAfter=4,
     )
     cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontSize=8, leading=10)
@@ -212,7 +285,7 @@ def build_report_pdf(fdf: pd.DataFrame) -> bytes:
     elements = []
 
     # ── Cabeçalho ────────────────────────────────────────────────────────────
-    elements.append(Paragraph("Relatório de Uso de Ferramentas — Agente IA", styles["Title"]))
+    elements.append(Paragraph("Relatório de Uso de Ferramentas — Agente IA", title_style))
     periodo = (
         f"Período analisado: {fdf['created_at'].min():%d/%m/%Y} a {fdf['created_at'].max():%d/%m/%Y}"
         f" &nbsp;|&nbsp; Total de atividades: {len(fdf):,}"
@@ -221,17 +294,18 @@ def build_report_pdf(fdf: pd.DataFrame) -> bytes:
     elements.append(Spacer(1, 0.6 * cm))
 
     # ── 1. Agentes mais utilizados ───────────────────────────────────────────
-    elements.append(Paragraph("Agentes Mais Utilizados", styles["Heading2"]))
+    elements.append(Paragraph("Agentes Mais Utilizados", heading_style))
     agent_counts = fdf["agent"].value_counts().reset_index()
     agent_counts.columns = ["Agente", "Quantidade"]
 
-    elements.append(_mpl_fig_to_rlimage(_build_agent_pie(agent_counts), width_cm=15))
+    elements.append(_card(_mpl_fig_to_rlimage(_build_agent_pie(agent_counts), width_cm=15)))
 
     top_agent = agent_counts.iloc[0]
     pct_agent = top_agent["Quantidade"] / agent_counts["Quantidade"].sum() * 100
     elements.append(
         Paragraph(
-            f"O agente mais utilizado foi <b>{top_agent['Agente']}</b>, com "
+            f"O agente mais utilizado foi "
+            f"<font color='{MACFOR_BLUE}'><b>{top_agent['Agente']}</b></font>, com "
             f"{int(top_agent['Quantidade'])} usos ({pct_agent:.1f}% do total).",
             highlight_style,
         )
@@ -239,12 +313,12 @@ def build_report_pdf(fdf: pd.DataFrame) -> bytes:
     elements.append(PageBreak())
 
     # ── 2. Usuários ───────────────────────────────────────────────────────────
-    elements.append(Paragraph("Usuários", styles["Heading2"]))
+    elements.append(Paragraph("Usuários", heading_style))
 
     user_counts = fdf["user_email"].value_counts().reset_index()
     user_counts.columns = ["Usuário", "Quantidade"]
 
-    elements.append(_mpl_fig_to_rlimage(_build_user_bar(user_counts), width_cm=16))
+    elements.append(_card(_mpl_fig_to_rlimage(_build_user_bar(user_counts), width_cm=16)))
     elements.append(Spacer(1, 0.4 * cm))
 
     user_tools = (
@@ -270,11 +344,11 @@ def build_report_pdf(fdf: pd.DataFrame) -> bytes:
     user_table.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2c3e50")),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(MACFOR_BLUE)),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("FONTSIZE", (0, 0), (-1, 0), 9),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor(GRID_COLOR)),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5f5")]),
             ]
@@ -284,22 +358,22 @@ def build_report_pdf(fdf: pd.DataFrame) -> bytes:
     elements.append(PageBreak())
 
     # ── 3. Uso por ferramenta ────────────────────────────────────────────────
-    elements.append(Paragraph("Uso por Ferramenta", styles["Heading2"]))
+    elements.append(Paragraph("Uso por Ferramenta", heading_style))
     action_counts = fdf["action"].value_counts().reset_index()
     action_counts.columns = ["Ferramenta", "Quantidade"]
 
-    elements.append(_mpl_fig_to_rlimage(_build_tool_bar(action_counts), width_cm=16))
+    elements.append(_card(_mpl_fig_to_rlimage(_build_tool_bar(action_counts), width_cm=16)))
 
     output = BytesIO()
     doc = SimpleDocTemplate(
         output,
         pagesize=A4,
-        topMargin=1.5 * cm,
-        bottomMargin=1.5 * cm,
+        topMargin=2.1 * cm,
+        bottomMargin=1.8 * cm,
         leftMargin=1.5 * cm,
         rightMargin=1.5 * cm,
     )
-    doc.build(elements)
+    doc.build(elements, onFirstPage=_draw_header_footer, onLaterPages=_draw_header_footer)
     return output.getvalue()
 
 
