@@ -123,11 +123,7 @@ def _draw_header_footer(canvas, doc):
     canvas.saveState()
     page_w, page_h = A4
 
-    # Cabeçalho: "MACFOR" à esquerda, logo à direita, linha azul de separação.
-    canvas.setFont("Helvetica-Bold", 8)
-    canvas.setFillColor(colors.HexColor(MACFOR_BLUE))
-    canvas.drawString(1.5 * cm, page_h - 1.15 * cm, "MACFOR")
-
+    # Cabeçalho: logo à direita, linha azul de separação.
     if os.path.exists(LOGO_PATH):
         logo_w, logo_h = 2.6 * cm, 2.6 * cm / (1120 / 360)
         canvas.drawImage(
