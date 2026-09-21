@@ -18,7 +18,9 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import (
+    HRFlowable,
     Image as RLImage,
+    KeepTogether,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -84,8 +86,16 @@ def get_client():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def _mpl_fig_to_rlimage(fig, width_cm: float) -> RLImage:
-    """Renderiza uma figura matplotlib como PNG e devolve como Image do reportlab."""
+CONTENT_W_CM = 18.0  # largura útil entre as margens (A4 - 1.5cm de cada lado)
+
+
+def _mpl_fig_to_rlimage(fig, width_cm: float, max_height_cm: float = None) -> RLImage:
+    """Renderiza uma figura matplotlib como PNG e devolve como Image do reportlab.
+
+    Se ``max_height_cm`` for informado e a altura resultante ultrapassar o limite
+    (ex.: gráfico horizontal com muitas barras), a imagem é reduzida
+    proporcionalmente para nunca estourar a página.
+    """
     buf = BytesIO()
     fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
     plt.close(fig)
@@ -93,6 +103,9 @@ def _mpl_fig_to_rlimage(fig, width_cm: float) -> RLImage:
     px_w, px_h = PILImage.open(buf).size
     buf.seek(0)
     height_cm = width_cm * (px_h / px_w)
+    if max_height_cm and height_cm > max_height_cm:
+        width_cm *= max_height_cm / height_cm
+        height_cm = max_height_cm
     return RLImage(buf, width=width_cm * cm, height=height_cm * cm)
 
 
@@ -115,7 +128,145 @@ def _card(img: RLImage, pad_cm: float = 0.4) -> Table:
             ]
         )
     )
+    card.hAlign = "CENTER"
     return card
+
+
+def _stat_tile(value: str, label: str, width_cm: float) -> Table:
+    """Card de KPI: número em destaque + rótulo, com barra de acento azul no topo."""
+    value_style = ParagraphStyle(
+        "KpiValue",
+        fontName="Helvetica-Bold",
+        fontSize=21,
+        leading=24,
+        textColor=colors.HexColor(INK_PRIMARY),
+        alignment=TA_CENTER,
+    )
+    label_style = ParagraphStyle(
+        "KpiLabel",
+        fontName="Helvetica",
+        fontSize=8.5,
+        leading=11,
+        textColor=colors.HexColor(INK_SECONDARY),
+        alignment=TA_CENTER,
+    )
+    tile = Table(
+        [[Paragraph(value, value_style)], [Paragraph(label, label_style)]],
+        colWidths=[width_cm * cm],
+    )
+    tile.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor(AXIS_COLOR)),
+                ("LINEABOVE", (0, 0), (-1, 0), 2.5, colors.HexColor(MACFOR_BLUE)),
+                ("TOPPADDING", (0, 0), (-1, 0), 0.5 * cm),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 0.05 * cm),
+                ("TOPPADDING", (0, 1), (-1, 1), 0.05 * cm),
+                ("BOTTOMPADDING", (0, 1), (-1, 1), 0.45 * cm),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0.2 * cm),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0.2 * cm),
+            ]
+        )
+    )
+    return tile
+
+
+def _kpi_row(items, total_width_cm: float = CONTENT_W_CM, gap_cm: float = 0.45) -> Table:
+    """Uma linha de tiles de KPI, distribuídos ao longo de ``total_width_cm``."""
+    n = len(items)
+    tile_w = (total_width_cm - gap_cm * (n - 1)) / n
+    row_cells, col_widths = [], []
+    for i, (value, label) in enumerate(items):
+        if i:
+            row_cells.append("")
+            col_widths.append(gap_cm * cm)
+        row_cells.append(_stat_tile(value, label, tile_w))
+        col_widths.append(tile_w * cm)
+    row = Table([row_cells], colWidths=col_widths)
+    row.setStyle(
+        TableStyle(
+            [
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    return row
+
+
+def _section_heading(number: str, title: str, width_cm: float = CONTENT_W_CM) -> list:
+    """Título de seção no estilo do deck Macfor: número em azul + título + regra fina."""
+    style = ParagraphStyle(
+        "SectionHeading",
+        fontName="Helvetica-Bold",
+        fontSize=16,
+        leading=19,
+        textColor=colors.HexColor(INK_PRIMARY),
+    )
+    text = f"<font color='{MACFOR_BLUE}'>{number}</font>&nbsp;&nbsp;{title}"
+    return [
+        Paragraph(text, style),
+        Spacer(1, 0.18 * cm),
+        HRFlowable(
+            width=width_cm * cm,
+            thickness=1,
+            color=colors.HexColor(AXIS_COLOR),
+            spaceAfter=0.4 * cm,
+        ),
+    ]
+
+
+def _callout(html_text: str, width_cm: float = CONTENT_W_CM) -> Table:
+    """Caixa de destaque (insight) com fundo azul claro e barra de acento à esquerda."""
+    style = ParagraphStyle(
+        "Callout",
+        fontName="Helvetica",
+        fontSize=10.5,
+        leading=14.5,
+        textColor=colors.HexColor(INK_PRIMARY),
+    )
+    box = Table([[Paragraph(html_text, style)]], colWidths=[width_cm * cm])
+    box.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(SEQ_BLUE[0])),
+                ("LINEBEFORE", (0, 0), (0, 0), 3, colors.HexColor(MACFOR_BLUE)),
+                ("TOPPADDING", (0, 0), (-1, -1), 0.3 * cm),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0.3 * cm),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0.5 * cm),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0.4 * cm),
+            ]
+        )
+    )
+    return box
+
+
+def _ranking_table(rows_data, header, col_widths, header_bg: str = MACFOR_BLUE) -> Table:
+    """Tabela de ranking compacta (usada nas seções de agentes e ferramentas)."""
+    table = Table([header] + rows_data, colWidths=col_widths, repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(header_bg)),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 9),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 1), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor(GRID_COLOR)),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5f5")]),
+                ("TOPPADDING", (0, 0), (-1, -1), 0.18 * cm),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0.18 * cm),
+            ]
+        )
+    )
+    return table
 
 
 def _draw_header_footer(canvas, doc):
@@ -159,7 +310,7 @@ def _seq_blue_colors(values) -> list:
 def _build_agent_pie(agent_counts: pd.DataFrame):
     n = len(agent_counts)
     total = agent_counts["Quantidade"].sum()
-    fig, ax = plt.subplots(figsize=(7, 4))
+    fig, ax = plt.subplots(figsize=(7, 4.7))
     wedges, _ = ax.pie(
         agent_counts["Quantidade"],
         colors=CATEGORICAL_COLORS[:n],
@@ -221,7 +372,7 @@ def _build_tool_bar(action_counts: pd.DataFrame):
     df_sorted = action_counts.sort_values("Quantidade", ascending=False)
     n = len(df_sorted)
     fig_width = max(7, 0.9 * n + 1.5)
-    fig, ax = plt.subplots(figsize=(fig_width, 4.6))
+    fig, ax = plt.subplots(figsize=(fig_width, 5.6))
 
     vals = df_sorted["Quantidade"].tolist()
     x_pos = range(n)
@@ -253,68 +404,107 @@ def _build_tool_bar(action_counts: pd.DataFrame):
 
 def build_report_pdf(fdf: pd.DataFrame) -> bytes:
     styles = getSampleStyleSheet()
+    CW = CONTENT_W_CM
+
     title_style = ParagraphStyle(
         "MacforTitle",
         parent=styles["Title"],
         textColor=colors.HexColor(INK_PRIMARY),
         fontName="Helvetica-Bold",
-        fontSize=20,
+        fontSize=21,
+        spaceAfter=2,
     )
-    heading_style = ParagraphStyle(
-        "MacforHeading",
-        parent=styles["Heading2"],
-        textColor=colors.HexColor(MACFOR_BLUE),
-        fontName="Helvetica-Bold",
-    )
-    highlight_style = ParagraphStyle(
-        "Highlight",
+    meta_style = ParagraphStyle(
+        "Meta",
         parent=styles["Normal"],
-        fontSize=12,
-        alignment=TA_CENTER,
-        textColor=colors.HexColor(INK_PRIMARY),
-        spaceBefore=10,
-        spaceAfter=4,
+        fontSize=9.5,
+        textColor=colors.HexColor(INK_SECONDARY),
     )
-    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontSize=8, leading=10)
+    cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontSize=8.5, leading=10.5)
+    rank_cell_style = ParagraphStyle("RankCell", parent=styles["Normal"], fontSize=9, leading=11)
 
     elements = []
 
-    # ── Cabeçalho ────────────────────────────────────────────────────────────
+    # ── Cabeçalho + KPIs (abertura do relatório) ────────────────────────────
     elements.append(Paragraph("Relatório de Uso de Ferramentas — Agente IA", title_style))
     periodo = (
-        f"Período analisado: {fdf['created_at'].min():%d/%m/%Y} a {fdf['created_at'].max():%d/%m/%Y}"
-        f" &nbsp;|&nbsp; Total de atividades: {len(fdf):,}"
+        f"Período analisado: {fdf['created_at'].min():%d/%m/%Y} a "
+        f"{fdf['created_at'].max():%d/%m/%Y}"
     )
-    elements.append(Paragraph(periodo, styles["Normal"]))
-    elements.append(Spacer(1, 0.6 * cm))
+    elements.append(Paragraph(periodo, meta_style))
+    elements.append(Spacer(1, 0.5 * cm))
 
-    # ── 1. Agentes mais utilizados ───────────────────────────────────────────
-    elements.append(Paragraph("Agentes Mais Utilizados", heading_style))
+    kpis = [
+        (f"{len(fdf):,}".replace(",", "."), "Total de atividades"),
+        (str(fdf["user_email"].nunique()), "Usuários únicos"),
+        (str(fdf["agent"].nunique()), "Agentes únicos"),
+        (str(fdf["action"].nunique()), "Ferramentas únicas"),
+    ]
+    elements.append(_kpi_row(kpis, total_width_cm=CW))
+    elements.append(Spacer(1, 0.7 * cm))
+
+    # ── 01. Agentes mais utilizados ──────────────────────────────────────────
     agent_counts = fdf["agent"].value_counts().reset_index()
     agent_counts.columns = ["Agente", "Quantidade"]
-
-    elements.append(_card(_mpl_fig_to_rlimage(_build_agent_pie(agent_counts), width_cm=15)))
-
+    total_agent = int(agent_counts["Quantidade"].sum())
     top_agent = agent_counts.iloc[0]
-    pct_agent = top_agent["Quantidade"] / agent_counts["Quantidade"].sum() * 100
-    elements.append(
-        Paragraph(
+    pct_agent = top_agent["Quantidade"] / total_agent * 100
+
+    intro_block = _section_heading("01", "Agentes Mais Utilizados", CW) + [
+        _callout(
             f"O agente mais utilizado foi "
             f"<font color='{MACFOR_BLUE}'><b>{top_agent['Agente']}</b></font>, com "
             f"{int(top_agent['Quantidade'])} usos ({pct_agent:.1f}% do total).",
-            highlight_style,
+            width_cm=CW,
+        )
+    ]
+    elements.append(KeepTogether(intro_block))
+    elements.append(Spacer(1, 0.45 * cm))
+    elements.append(_card(_mpl_fig_to_rlimage(_build_agent_pie(agent_counts), width_cm=17.3)))
+    elements.append(Spacer(1, 0.5 * cm))
+
+    agent_rank_rows = []
+    for _, row in agent_counts.iterrows():
+        pct = row["Quantidade"] / total_agent * 100
+        agent_rank_rows.append(
+            [
+                Paragraph(str(row["Agente"]), rank_cell_style),
+                str(int(row["Quantidade"])),
+                f"{pct:.1f}%",
+            ]
+        )
+    elements.append(
+        _ranking_table(
+            agent_rank_rows,
+            header=["Agente", "Usos", "% do Total"],
+            col_widths=[11 * cm, 3.5 * cm, 3.5 * cm],
         )
     )
     elements.append(PageBreak())
 
-    # ── 2. Usuários ───────────────────────────────────────────────────────────
-    elements.append(Paragraph("Usuários", heading_style))
-
+    # ── 02. Usuários ──────────────────────────────────────────────────────────
     user_counts = fdf["user_email"].value_counts().reset_index()
     user_counts.columns = ["Usuário", "Quantidade"]
+    total_user = int(user_counts["Quantidade"].sum())
+    top_user = user_counts.iloc[0]
+    pct_user = top_user["Quantidade"] / total_user * 100
 
-    elements.append(_card(_mpl_fig_to_rlimage(_build_user_bar(user_counts), width_cm=16)))
-    elements.append(Spacer(1, 0.4 * cm))
+    intro_block = _section_heading("02", "Usuários", CW) + [
+        _callout(
+            f"<font color='{MACFOR_BLUE}'><b>{top_user['Usuário']}</b></font> concentra "
+            f"{pct_user:.1f}% de todo o uso registrado no período "
+            f"({int(top_user['Quantidade'])} de {total_user} atividades).",
+            width_cm=CW,
+        )
+    ]
+    elements.append(KeepTogether(intro_block))
+    elements.append(Spacer(1, 0.45 * cm))
+
+    user_bar_img = _mpl_fig_to_rlimage(
+        _build_user_bar(user_counts), width_cm=17.5, max_height_cm=19
+    )
+    elements.append(_card(user_bar_img))
+    elements.append(Spacer(1, 0.5 * cm))
 
     user_tools = (
         fdf.groupby("user_email")["action"]
@@ -335,7 +525,7 @@ def build_report_pdf(fdf: pd.DataFrame) -> bytes:
                 Paragraph(row["Ferramentas Utilizadas"], cell_style),
             ]
         )
-    user_table = Table(table_rows, colWidths=[5 * cm, 1.5 * cm, 9.5 * cm], repeatRows=1)
+    user_table = Table(table_rows, colWidths=[5.5 * cm, 1.8 * cm, 10.7 * cm], repeatRows=1)
     user_table.setStyle(
         TableStyle(
             [
@@ -346,18 +536,60 @@ def build_report_pdf(fdf: pd.DataFrame) -> bytes:
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor(GRID_COLOR)),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5f5")]),
+                ("TOPPADDING", (0, 0), (-1, -1), 0.15 * cm),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0.15 * cm),
             ]
         )
     )
     elements.append(user_table)
     elements.append(PageBreak())
 
-    # ── 3. Uso por ferramenta ────────────────────────────────────────────────
-    elements.append(Paragraph("Uso por Ferramenta", heading_style))
+    # ── 03. Uso por ferramenta ───────────────────────────────────────────────
     action_counts = fdf["action"].value_counts().reset_index()
     action_counts.columns = ["Ferramenta", "Quantidade"]
+    total_action = int(action_counts["Quantidade"].sum())
+    top_action = action_counts.iloc[0]
+    pct_action = top_action["Quantidade"] / total_action * 100
 
-    elements.append(_card(_mpl_fig_to_rlimage(_build_tool_bar(action_counts), width_cm=16)))
+    intro_block = _section_heading("03", "Uso por Ferramenta", CW) + [
+        _callout(
+            f"A ferramenta mais utilizada foi "
+            f"<font color='{MACFOR_BLUE}'><b>{top_action['Ferramenta']}</b></font>, com "
+            f"{int(top_action['Quantidade'])} usos ({pct_action:.1f}% do total).",
+            width_cm=CW,
+        )
+    ]
+    elements.append(KeepTogether(intro_block))
+    elements.append(Spacer(1, 0.45 * cm))
+
+    tool_img = _mpl_fig_to_rlimage(_build_tool_bar(action_counts), width_cm=17.5, max_height_cm=16)
+    elements.append(_card(tool_img))
+    elements.append(Spacer(1, 0.5 * cm))
+
+    action_users = fdf.groupby("action")["user_email"].nunique().reset_index()
+    action_users.columns = ["Ferramenta", "Usuários"]
+    action_summary = action_counts.merge(action_users, on="Ferramenta").sort_values(
+        "Quantidade", ascending=False
+    )
+
+    tool_rank_rows = []
+    for _, row in action_summary.iterrows():
+        pct = row["Quantidade"] / total_action * 100
+        tool_rank_rows.append(
+            [
+                Paragraph(str(row["Ferramenta"]), rank_cell_style),
+                str(int(row["Quantidade"])),
+                f"{pct:.1f}%",
+                str(int(row["Usuários"])),
+            ]
+        )
+    elements.append(
+        _ranking_table(
+            tool_rank_rows,
+            header=["Ferramenta", "Usos", "% do Total", "Usuários"],
+            col_widths=[8.5 * cm, 3 * cm, 3 * cm, 3.5 * cm],
+        )
+    )
 
     output = BytesIO()
     doc = SimpleDocTemplate(
