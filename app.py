@@ -270,11 +270,11 @@ def _ranking_table(rows_data, header, col_widths, header_bg: str = MACFOR_BLUE) 
 
 
 def _draw_header_footer(canvas, doc):
-    """Cabeçalho/rodapé de marca (logo + linha azul + tagline), repetido em toda página."""
+    """Cabeçalho/rodapé de marca (logo + tagline), repetido em toda página."""
     canvas.saveState()
     page_w, page_h = A4
 
-    # Cabeçalho: logo à direita, linha azul de separação.
+    # Cabeçalho: logo à direita.
     if os.path.exists(LOGO_PATH):
         logo_w, logo_h = 2.6 * cm, 2.6 * cm / (1120 / 360)
         canvas.drawImage(
@@ -284,10 +284,6 @@ def _draw_header_footer(canvas, doc):
             width=logo_w,
             height=logo_h,
         )
-
-    canvas.setStrokeColor(colors.HexColor(MACFOR_BLUE))
-    canvas.setLineWidth(1)
-    canvas.line(1.5 * cm, page_h - 1.4 * cm, page_w - 1.5 * cm, page_h - 1.4 * cm)
 
     # Rodapé: tagline à esquerda, número de página à direita.
     canvas.setFont("Helvetica", 8)
